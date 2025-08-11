@@ -228,9 +228,15 @@ async def prod_qty(msg: Message):
 @dp.message(F.text == "✅ Tasdiqlash")
 async def confirm_prod(msg: Message):
     sess = user_sessions[msg.from_user.id]
+
     if sess.get("state") != "confirming":
         return await msg.answer("Kutilmagan qadam.")
 
+    # Check if all required fields are present
+    if not sess.get("production_type") or not sess.get("quantity"):
+        return await msg.answer("❌ Ma'lumotlar to‘liq emas. Iltimos, qaytadan boshlang.")
+
+    # Save to database
     db.save_production({
         "name": sess["name"],
         "production_type": sess["production_type"],
@@ -238,14 +244,7 @@ async def confirm_prod(msg: Message):
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
-    sess["state"] = "logged_in"
-    # Clear production keys to be safe
-    sess.pop("production_type", None)
-    sess.pop("quantity", None)
-
-    await msg.answer("✅ Saqlandi!", reply_markup=main_menu(sess))
-
-    admins = [uid for uid, data in user_sessions.items() if data.get("is_admin")]
+    # Prepare alert text BEFORE clearing keys
     alert_text = (
         f"📢 Yangi ishlab chiqarish yozuvi\n"
         f"👤 Ishchi: {sess['name']}\n"
@@ -254,12 +253,24 @@ async def confirm_prod(msg: Message):
         f"📦 Miqdor: {sess['quantity']}\n"
         f"🕒 Vaqt: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
+
+    # Update state
+    sess["state"] = "logged_in"
+
+    # Clear production keys to be safe
+    sess.pop("production_type", None)
+    sess.pop("quantity", None)
+
+    # Confirm to user
+    await msg.answer("✅ Saqlandi!", reply_markup=main_menu(sess))
+
+    # Send to admins
+    admins = [uid for uid, data in user_sessions.items() if data.get("is_admin")]
     for admin_id in admins:
         try:
             await bot.send_message(admin_id, alert_text)
         except Exception as e:
             print(f"Admin {admin_id} ga xabar yuborilmadi: {e}")
-
 
 @dp.message(F.text == "❌ Bekor qilish")
 async def cancel_prod(msg: Message):
